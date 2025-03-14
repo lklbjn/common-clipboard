@@ -3,6 +3,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const crypto = require('crypto');
 
 // 解析命令行参数获取管理员账号信息
 let adminUsername = 'admin';
@@ -98,7 +99,8 @@ let clipboards = [
   {
     id: 'default',
     content: '欢迎使用公共剪切板！',
-    name: '默认'
+    name: '默认',
+    isEncrypted: false
   }
 ];
 
@@ -233,14 +235,25 @@ io.on('connection', (socket) => {
 
   // 监听剪切板更新事件
   socket.on('update-clipboard', (data) => {
-    const { id, content, name } = data;
+    const { id, content, name, isEncrypted, encryptedKey } = data;
 
     const existingIndex = clipboards.findIndex(clip => clip.id === id);
     if (existingIndex !== -1) {
-      clipboards[existingIndex].content = content;
-      if (name) clipboards[existingIndex].name = name;
+      clipboards[existingIndex] = {
+        ...clipboards[existingIndex],
+        content,
+        name,
+        isEncrypted,
+        encryptedKey
+      };
     } else {
-      clipboards.push({ id, content, name });
+      clipboards.push({
+        id,
+        content,
+        name,
+        isEncrypted,
+        encryptedKey
+      });
     }
 
     // 广播给所有客户端
