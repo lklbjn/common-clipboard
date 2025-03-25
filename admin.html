@@ -186,7 +186,7 @@
             <h2>IP 黑名单管理</h2>
             <div class="blacklist-controls">
                 <input type="text" id="ipInput" placeholder="输入IP地址（支持IPv4/IPv6）" style="width: 250px">
-                <input type="number" id="hoursInput" placeholder="封禁时长（小时）" min="1" max="720" style="width: 150px">
+                <input type="number" id="hoursInput" placeholder="封禁时长（秒）" min="1" max="2592000" style="width: 150px">
                 <button onclick="addToBlacklist()">添加到黑名单</button>
             </div>
             <table class="blacklist-table">
@@ -289,10 +289,10 @@
         }
         // 添加IP到黑名单
         function addToBlacklist() {
-            const ip = document.getElementById('ipInput').value.trim();
-            const hours = parseInt(document.getElementById('hoursInput').value);
+            let ip = document.getElementById('ipInput').value.trim();
+            const seconds = parseFloat(document.getElementById('hoursInput').value);
 
-            if (!ip || !hours) {
+            if (!ip || !seconds) {
                 showToast('请输入IP地址和封禁时长', 'error');
                 return;
             }
@@ -302,9 +302,13 @@
                 return;
             }
 
-            if (hours < 1 || hours > 720) {
-                showToast('封禁时长必须在1-720小时之间', 'error');
+            if (seconds < 1 || seconds > 2592000) {
+                showToast('封禁时长必须在1-2592000秒之间', 'error');
                 return;
+            }
+
+            if(isValidIPv4(ip)){
+                ip = '::ffff:' + ip;
             }
 
             fetch('/admin/blacklist', {
@@ -312,7 +316,7 @@
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ ip, hours })
+                body: JSON.stringify({ ip, seconds })
             })
                 .then(response => response.json())
                 .then(data => {
@@ -360,7 +364,7 @@
                         <tr>
                             <td>${item.ip}</td>
                             <td>${formatDate(item.kickTime)}</td>
-                            <td>${item.remainingHours.toFixed(1)}小时</td>
+                            <td>${item.remainingHours.toFixed(1)}秒</td>
                             <td>
                                 <button class="delete-ip-button" onclick="removeFromBlacklist('${item.ip}')">删除</button>
                             </td>
@@ -382,7 +386,7 @@
         updateBlacklist();
 
         // 定期更新黑名单列表（每分钟）
-        setInterval(updateBlacklist, 60000);
+        setInterval(updateBlacklist, 5000);
     </script>
 </body>
 

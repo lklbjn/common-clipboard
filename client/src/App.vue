@@ -2,7 +2,7 @@
 import { ref, onMounted, watch } from 'vue';
 import { io } from 'socket.io-client';
 import CryptoJS from 'crypto-js';
-import JSEncrypt from 'jsencrypt';
+import LockIcon from './assets/icons/lock.svg';
 
 // 剪切板数据
 const clipboards = ref([]);
@@ -15,16 +15,6 @@ const newClipboardPassword = ref('');
 const showPasswordDialog = ref(false);
 const passwordInput = ref('');
 const currentClipboardId = ref('');
-
-// 加密相关
-const encryptor = new JSEncrypt();
-const publicKey = `-----BEGIN PUBLIC KEY-----
-MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC7JL0DXy6R/KJ6VJ5BHBWg3Fxp
-rZFJfWcHZeI8ZLKzPuGX7k8vN0JHYr5y+LzVqX5NGwc7pumYNYqSR+6H6aBHZYYk
-1SuHqj7p7NZbw+b4yLgxpTYaVlKVE3JGPOBsYOZqX7c2+Fy8KDWTQqUxV4ZbqCXe
-xQYvNAXCl7ZOyQ2GHQIDAQAB
------END PUBLIC KEY-----`;
-encryptor.setPublicKey(publicKey);
 
 // WebSocket连接配置
 const wsAddress = ref(localStorage.getItem('wsAddress') || 'http://localhost:3000');
@@ -80,9 +70,23 @@ const connectWebSocket = () => {
     
     // 监听剪切板更新
     socket.value.on('clipboard-updated', (data) => {
-      clipboards.value = data;
-      // 同步更新当前活动的剪切板
-      const currentClipboard = data.find(clip => clip.id === activeClipboardId.value);
+      clipboards.value = data.map(clip => {
+        if (clip.isEncrypted && clip.content) {
+          try {
+            const password = localStorage.getItem(`clipboard-${clip.id}-password`);
+            if (password) {
+              const bytes = CryptoJS.AES.decrypt(clip.content, password);
+              return {...clip, content: bytes.toString(CryptoJS.enc.Utf8)};
+            }
+          } catch (error) {
+            console.error('解密失败:', error);
+            showToastMessage('内容解密失败，请检查密码');
+          }
+        }
+        return clip;
+      });
+      
+      const currentClipboard = clipboards.value.find(clip => clip.id === activeClipboardId.value);
       if (currentClipboard) {
         activeClipboard.value = currentClipboard;
       }
@@ -151,45 +155,75 @@ const addClipboard = () => {
 };
 
 // 确认添加新剪贴板
-const confirmAddClipboard = () => {
+const confirmAddClipboard = async () => {
   const name = newClipboardName.value.trim() || `剪贴板 ${clipboards.value.length}`;
   const password = newClipboardPassword.value;
-  
-  // 生成随机的AES密钥
-  const aesKey = CryptoJS.lib.WordArray.random(32);
-  const encryptedAesKey = password ? encryptor.encrypt(aesKey.toString()) : null;
   
   const newClipboard = { 
     id: tempClipboardId.value, 
     content: '',
     name: name,
     isEncrypted: !!password,
-    encryptedKey: encryptedAesKey
+    password: password // 只在创建时传递密码
   };
   
-  if (password) {
-    // 存储本地密码
-    localStorage.setItem(`clipboard-${newClipboard.id}-password`, password);
+  try {
+    const response = await fetch(`${wsAddress.value}/api/clipboards`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(newClipboard)
+    });
+
+    if (!response.ok) {
+      throw new Error('创建剪贴板失败');
+    }
+
+    const result = await response.json();
+    if (result.success) {
+      activeClipboardId.value = tempClipboardId.value;
+      showNameDialog.value = false;
+      showToastMessage('创建成功！');
+    }
+  } catch (error) {
+    console.error('创建剪贴板失败:', error);
+    showToastMessage('创建失败: ' + error.message);
   }
-  console.log('新的剪贴板：', newClipboard);
-  clipboards.value.push(newClipboard);
-  activeClipboardId.value = tempClipboardId.value;
-  
-  if (socket.value) {
-    socket.value.emit('update-clipboard', newClipboard);
-  }
-  
-  showNameDialog.value = false;
 };
 
 // 切换剪贴板
-const switchClipboard = (id) => {
+const switchClipboard = async (id) => {
   const clipboard = clipboards.value.find(clip => clip.id === id);
   if (clipboard && clipboard.isEncrypted) {
-    const savedPassword = localStorage.getItem(`clipboard-${id}-password`);
-    if (!savedPassword) {
-      currentClipboardId.value = id;
-      showPasswordDialog.value = true;
+    try {
+      console.log("剪切板",`${clipboard.id}`);
+      console.log("密码：",`${clipboard.id}-password`);
+      const response = await fetch(`${wsAddress.value}/api/clipboards/verify`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          id: id,
+          password: localStorage.getItem(`${clipboard.id}-password`) || ''
+        })
+      });
+
+      if (!response.ok) {
+        currentClipboardId.value = id;
+        showPasswordDialog.value = true;
+        return;
+      }
+
+      const result = await response.json();
+      if (!result.isValid) {
+        showToastMessage('保存的密码已失效，请重新输入');
+        currentClipboardId.value = id;
+        showPasswordDialog.value = true;
+        return;
+      }
+    } catch (error) {
+      console.error('密码验证失败:', error);
+      showToastMessage('密码验证服务不可用');
       return;
     }
   }
@@ -197,13 +231,41 @@ const switchClipboard = (id) => {
 };
 
 // 验证密码
-const verifyPassword = () => {
+const verifyPassword = async () => {
   const clipboard = clipboards.value.find(clip => clip.id === currentClipboardId.value);
-  if (clipboard) {
-    localStorage.setItem(`clipboard-${currentClipboardId.value}-password`, passwordInput.value);
-    activeClipboardId.value = currentClipboardId.value;
-    showPasswordDialog.value = false;
-    passwordInput.value = '';
+  if (!clipboard) {
+    showToastMessage('剪贴板不存在');
+    return;
+  }
+  
+  try {
+    const response = await fetch(`${wsAddress.value}/api/clipboards/verify`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        id: clipboard.id,
+        password: passwordInput.value
+      })
+    });
+
+    const result = await response.json();
+    if (result.isValid) {
+      showPasswordDialog.value = false;
+      showToastMessage('密码验证成功！');
+      clipboard.content = result.content;
+      // 保存密码到本地存储
+      localStorage.setItem(`${clipboard.id}-password`, passwordInput.value);
+      // 设置当前活动剪贴板
+      activeClipboardId.value = clipboard.id;
+      activeClipboard.value = clipboard;
+    } else {
+      showToastMessage('密码验证失败！');
+    }
+  } catch (error) {
+    console.error('密码验证失败:', error);
+    showToastMessage('密码验证失败: ' + error.message);
   }
 };
 
@@ -323,7 +385,7 @@ const fallbackCopy = () => {
       >
         <span class="tab-name">
           {{ clipboard.id === 'default' ? '默认' : (clipboard.name || `剪切板 ${clipboards.indexOf(clipboard)}`) }}
-          <span v-if="clipboard.isEncrypted" class="lock-icon">🔒</span>
+          <img v-if="clipboard.isEncrypted" :src="LockIcon" class="lock-icon" alt="locked" />
         </span>
         <button 
           v-if="clipboard.id !== 'default'" 
@@ -513,6 +575,14 @@ h1 {
 
 .tab-name {
   margin-right: 8px;
+}
+
+.lock-icon {
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+  margin-left: 4px;
+  color: currentColor; /* 确保SVG图标继承父元素的颜色 */
 }
 
 .tab-close {

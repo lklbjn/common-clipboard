@@ -83,8 +83,8 @@ function isIpBlacklisted(ip) {
   if (ipBlacklist.has(ip)) {
     const block = ipBlacklist.get(ip);
     const now = new Date();
-    const hoursDiff = (now - block.kickTime) / (1000 * 60 * 60);
-    if (hoursDiff < block.duration) {
+    const secondsDiff = (now - block.kickTime) / 1000;
+    if (secondsDiff < block.duration) {
       return true;
     } else {
       // 超过24小时，从黑名单中移除
@@ -100,27 +100,88 @@ let clipboards = [
     id: 'default',
     content: '欢迎使用公共剪切板！',
     name: '默认',
-    isEncrypted: false
+    isEncrypted: false,
+    passwordHash: null
   }
 ];
 
 // API路由
 app.get('/api/clipboards', (req, res) => {
-  res.json(clipboards);
+  // 过滤掉加密内容
+  const sanitizedClipboards = clipboards.map(clip => ({
+    ...clip,
+    content: clip.isEncrypted ? '' : clip.content
+  }));
+  res.json(sanitizedClipboards);
+});
+
+// 新增密码验证接口
+app.post('/api/clipboards/verify', (req, res) => {
+  const { id, password } = req.body;
+  
+  if (!id || !password) {
+    return res.status(400).json({ error: '缺少ID或密码参数' });
+  }
+  
+  const clipboard = clipboards.find(clip => clip.id === id);
+  if (!clipboard) {
+    return res.status(404).json({ error: '剪切板不存在' });
+  }
+  
+  if (!clipboard.isEncrypted) {
+    return res.json({ isValid: true, content: clipboard.content });
+  }
+  
+  const inputHash = crypto.createHash('sha256').update(password).digest('hex');
+  if (inputHash === clipboard.passwordHash) {
+    return res.json({ isValid: true, content: clipboard.content });
+  }
+  
+  return res.json({ isValid: false });
 });
 
 app.post('/api/clipboards', (req, res) => {
-  const { id, content } = req.body;
+  const { id, content, name, isEncrypted, password } = req.body;
+  
+  if (isEncrypted && !password) {
+    return res.status(400).json({ error: '加密剪切板需要提供密码' });
+  }
+  
+  // 生成密码哈希
+  const passwordHash = isEncrypted ? crypto.createHash('sha256').update(password).digest('hex') : null;
 
   const existingIndex = clipboards.findIndex(clip => clip.id === id);
   if (existingIndex !== -1) {
-    clipboards[existingIndex].content = content;
+    // 如果是加密剪切板，需要验证密码
+    if (clipboards[existingIndex].isEncrypted) {
+      if (!password || crypto.createHash('sha256').update(password).digest('hex') !== clipboards[existingIndex].passwordHash) {
+        return res.status(403).json({ error: '密码错误' });
+      }
+    }
+    clipboards[existingIndex] = {
+      ...clipboards[existingIndex],
+      content,
+      name,
+      isEncrypted,
+      passwordHash
+    };
   } else {
-    clipboards.push({ id, content });
+    clipboards.push({
+      id,
+      content,
+      name,
+      isEncrypted,
+      passwordHash
+    });
   }
 
-  // 通知所有客户端更新
-  io.emit('clipboard-updated', clipboards);
+  // 通知所有客户端更新，过滤掉加密内容
+  const sanitizedClipboards = clipboards.map(clip => ({
+    ...clip,
+    content: clip.isEncrypted ? '' : clip.content,
+    passwordHash: undefined
+  }));
+  io.emit('clipboard-updated', sanitizedClipboards);
   res.json({ success: true });
 });
 
@@ -149,11 +210,11 @@ app.get('/admin/devices', (req, res) => {
 app.get('/admin/blacklist', (req, res) => {
   const blacklist = Array.from(ipBlacklist.entries()).map(([ip, data]) => {
     const now = new Date();
-    const hoursDiff = data.duration - (now - data.kickTime) / (1000 * 60 * 60);
+    const secondsDiff = data.duration - (now - data.kickTime) / 1000;
     return {
       ip,
       kickTime: data.kickTime.toISOString(),
-      remainingHours: Math.max(0, Math.round(hoursDiff * 10) / 10)
+      remainingHours: Math.max(0, secondsDiff)
     };
   });
   res.json(blacklist);
@@ -161,26 +222,26 @@ app.get('/admin/blacklist', (req, res) => {
 
 // 添加IP到黑名单
 app.post('/admin/blacklist', (req, res) => {
-  const { ip, hours } = req.body;
+  const { ip, seconds } = req.body;
 
-  if (!ip || !hours) {
+  if (!ip || !seconds) {
     return res.status(400).json({ error: '缺少必要参数' });
   }
 
-  if (hours < 1 || hours > 720) {
-    return res.status(400).json({ error: '封禁时长必须在1-720小时之间' });
+  if (seconds < 1 || seconds > 2592000) {
+    return res.status(400).json({ error: '封禁时长必须在1-2592000秒之间' });
   }
 
   // 计算解封时间
   const kickTime = new Date();
-  ipBlacklist.set(ip, { kickTime, duration: hours });
+  ipBlacklist.set(ip, { kickTime, duration: seconds });
 
   // 断开该IP的所有连接
   for (const [socketId, socket] of io.sockets.sockets) {
     const socketIp = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
     if (socketIp === ip) {
       socket.emit('kicked', {
-        reason: `您的IP已被管理员封禁${hours}小时`
+        reason: `您的IP已被管理员封禁${seconds}秒`
       });
       socket.disconnect(true);
     }
@@ -207,7 +268,7 @@ io.on('connection', (socket) => {
   // 检查IP是否在黑名单中
   if (isIpBlacklisted(clientIp)) {
     const { kickTime, duration } = ipBlacklist.get(clientIp);
-    console.log(`IP ${clientIp} 已被封禁，封禁时间：${kickTime.toISOString()}，剩余封禁时间：${duration}小时`);
+    console.log(`IP ${clientIp} 已被封禁，封禁时间：${kickTime.toISOString()}，解封时间：${new Date(kickTime.getTime() + duration * 1000).toISOString()}`);
     socket.emit('kicked', {
       reason: `您的IP已被封禁，请等待解封`
     });
@@ -275,8 +336,8 @@ io.on('connection', (socket) => {
     const targetSocket = io.sockets.sockets.get(deviceId);
     if (targetSocket) {
       const targetIp = targetSocket.handshake.headers['x-forwarded-for'] || targetSocket.handshake.address;
-      // 将IP添加到黑名单，默认封禁24小时
-      ipBlacklist.set(targetIp, { kickTime: new Date(), duration: 24 });
+      // 将IP添加到黑名单，默认封禁24小时(86400秒)
+      ipBlacklist.set(targetIp, { kickTime: new Date(), duration: 86400 });
       targetSocket.emit('kicked', {
         reason: '您已被管理员踢出，24小时内无法重新连接'
       });
@@ -298,5 +359,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`服务器运行在 http://10.3.37.77:${PORT}`);
+  console.log(`服务器运行在 http://127.0.0.1:${PORT}`);
 });
