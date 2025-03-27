@@ -2,7 +2,7 @@
 FROM node:18-alpine as client-builder
 WORKDIR /app/client
 
-# 复制前端项目文件
+# 复制前端项目文件并安装依赖
 COPY client/package*.json ./
 RUN npm install
 COPY client/ ./
@@ -14,12 +14,12 @@ RUN npm run build
 FROM node:18-alpine
 WORKDIR /app
 
-# 复制后端项目文件
+# 复制后端项目文件并安装依赖
 COPY server/package*.json ./
 RUN npm install --production
 COPY server/ ./
 
-# 从第一阶段复制构建好的前端文件
+# 从第一阶段复制构建好的前端文件到后端public目录
 COPY --from=client-builder /app/client/dist ./public
 
 # 设置环境变量
