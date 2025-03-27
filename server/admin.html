@@ -183,6 +183,21 @@
         <div id="deviceList" class="device-list"></div>
 
         <div class="blacklist-section">
+            <h2>剪切板管理</h2>
+            <table class="blacklist-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>名称</th>
+                        <th>是否加密</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="clipboardTable"></tbody>
+            </table>
+        </div>
+
+        <div class="blacklist-section">
             <h2>IP 黑名单管理</h2>
             <div class="blacklist-controls">
                 <input type="text" id="ipInput" placeholder="输入IP地址（支持IPv4/IPv6）" style="width: 250px">
@@ -385,8 +400,89 @@
 
         updateBlacklist();
 
-        // 定期更新黑名单列表（每分钟）
-        setInterval(updateBlacklist, 5000);
+        // 定期更新黑名单列表和剪切板列表
+        setInterval(() => {
+            updateBlacklist();
+            updateClipboardList();
+        }, 5000);
+
+        // 更新剪切板列表
+        function updateClipboardList() {
+            fetch('/api/clipboards')
+                .then(response => response.json())
+                .then(clipboards => {
+                    document.getElementById('clipboardTable').innerHTML = clipboards.map(item => `
+                        <tr>
+                            <td>${item.id}</td>
+                            <td>${item.name}</td>
+                            <td>${item.isEncrypted ? '是' : '否'}</td>
+                            <td>
+                                <button class="delete-ip-button" onclick="modifyClipboard('${item.id}')">修改密码</button>
+                                ${item.id !== 'default' ? `<button class="delete-ip-button" onclick="deleteClipboard('${item.id}')">删除</button>` : ''}
+                            </td>
+                        </tr>
+                    `).join('');
+                })
+                .catch(console.error);
+        }
+
+        // 修改剪切板密码
+        function modifyClipboard(id) {
+            const password = prompt('请输入新密码（留空表示取消加密）：');
+            if (password === null) return; // 用户点击取消
+
+            fetch('/admin/clipboards/password', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    id,
+                    password: password
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showToast('密码修改成功');
+                        updateClipboardList();
+                    } else {
+                        showToast(data.error || '修改失败', 'error');
+                    }
+                })
+                .catch(error => {
+                    showToast('修改失败：' + error.message, 'error');
+                });
+        }
+
+        // 删除剪切板
+        function deleteClipboard(id) {
+            if (id === 'default') {
+                showToast('不能删除默认剪切板', 'error');
+                return;
+            }
+
+            if (confirm('确定要删除此剪切板吗？')) {
+                fetch(`/api/clipboards/${id}`, {
+                    method: 'DELETE'
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            showToast('剪切板已删除');
+                            updateClipboardList();
+                        } else {
+                            showToast(data.error || '删除失败', 'error');
+                        }
+                    })
+                    .catch(error => {
+                        showToast('删除失败：' + error.message, 'error');
+                    });
+            }
+        }
+
+        // 获取初始剪切板列表
+        updateClipboardList();
     </script>
 </body>
 

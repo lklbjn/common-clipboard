@@ -27,19 +27,19 @@ const connectWebSocket = () => {
   if (socket.value) {
     socket.value.disconnect();
   }
-  
+
   isConnecting.value = true;
   connectionError.value = '';
-  
+
   try {
     socket.value = io(wsAddress.value);
-    
+
     socket.value.on('connect', () => {
       isConnected.value = true;
       isConnecting.value = false;
       connectionError.value = '';
       localStorage.setItem('wsAddress', wsAddress.value);
-      
+
       // 发送设备信息
       socket.value.emit('device-info', {
         browser: navigator.userAgent,
@@ -47,17 +47,17 @@ const connectWebSocket = () => {
         device: /Mobile|Android|iPhone/i.test(navigator.userAgent) ? 'Mobile' : 'Desktop'
       });
     });
-    
+
     socket.value.on('connect_error', (error) => {
       isConnected.value = false;
       isConnecting.value = false;
       connectionError.value = '连接失败：' + error.message;
     });
-    
+
     socket.value.on('disconnect', () => {
       isConnected.value = false;
     });
-    
+
     // 初始化剪切板数据
     socket.value.on('init-clipboards', (data) => {
       clipboards.value = data;
@@ -67,7 +67,7 @@ const connectWebSocket = () => {
         activeClipboard.value = defaultClipboard;
       }
     });
-    
+
     // 监听剪切板更新
     socket.value.on('clipboard-updated', (data) => {
       clipboards.value = data.map(clip => {
@@ -76,7 +76,7 @@ const connectWebSocket = () => {
             const password = localStorage.getItem(`clipboard-${clip.id}-password`);
             if (password) {
               const bytes = CryptoJS.AES.decrypt(clip.content, password);
-              return {...clip, content: bytes.toString(CryptoJS.enc.Utf8)};
+              return { ...clip, content: bytes.toString(CryptoJS.enc.Utf8) };
             }
           } catch (error) {
             console.error('解密失败:', error);
@@ -85,7 +85,7 @@ const connectWebSocket = () => {
         }
         return clip;
       });
-      
+
       const currentClipboard = clipboards.value.find(clip => clip.id === activeClipboardId.value);
       if (currentClipboard) {
         activeClipboard.value = currentClipboard;
@@ -100,7 +100,7 @@ const connectWebSocket = () => {
 
 onMounted(() => {
   connectWebSocket();
-  
+
   // 初始化剪切板数据
   socket.value.on('init-clipboards', (data) => {
     clipboards.value = data;
@@ -110,7 +110,7 @@ onMounted(() => {
       activeClipboard.value = defaultClipboard;
     }
   });
-  
+
   // 监听剪切板更新
   socket.value.on('clipboard-updated', (data) => {
     clipboards.value = data;
@@ -169,15 +169,15 @@ const addClipboard = () => {
 const confirmAddClipboard = async () => {
   const name = newClipboardName.value.trim() || `剪贴板 ${clipboards.value.length}`;
   const password = newClipboardPassword.value;
-  
-  const newClipboard = { 
-    id: tempClipboardId.value, 
+
+  const newClipboard = {
+    id: tempClipboardId.value,
     content: '',
     name: name,
     isEncrypted: !!password,
     password: password // 只在创建时传递密码
   };
-  
+
   try {
     const response = await fetch(`${wsAddress.value}/api/clipboards`, {
       method: 'POST',
@@ -208,11 +208,11 @@ const switchClipboard = async (id) => {
   const clipboard = clipboards.value.find(clip => clip.id === id);
   if (clipboard && clipboard.isEncrypted) {
     try {
-      console.log("剪切板",`${clipboard.id}`);
-      console.log("密码：",`${clipboard.id}-password`);
+      console.log("剪切板", `${clipboard.id}`);
+      console.log("密码：", `${clipboard.id}-password`);
       const response = await fetch(`${wsAddress.value}/api/clipboards/verify`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: id,
           password: localStorage.getItem(`${clipboard.id}-password`) || ''
@@ -248,7 +248,7 @@ const verifyPassword = async () => {
     showToastMessage('剪贴板不存在');
     return;
   }
-  
+
   try {
     const response = await fetch(`${wsAddress.value}/api/clipboards/verify`, {
       method: 'POST',
@@ -280,20 +280,65 @@ const verifyPassword = async () => {
   }
 };
 
+// 删除剪切板相关状态
+const showDeletePasswordDialog = ref(false);
+const deletePasswordInput = ref('');
+const clipboardToDelete = ref(null);
+
 // 删除剪切板
 const deleteClipboard = (id) => {
   if (id === 'default') return; // 不允许删除默认剪切板
-  
+  const clipboard = clipboards.value.find(clip => clip.id === id);
+  if (clipboard && clipboard.isEncrypted) {
+    // 如果是加密的剪切板，需要验证密码
+    clipboardToDelete.value = clipboard;
+    deletePasswordInput.value = '';
+    showDeletePasswordDialog.value = true;
+  } else {
+    confirmDeleteClipboard(id);
+  }
+};
+
+// 验证删除密码
+const verifyDeletePassword = async () => {
+  if (!clipboardToDelete.value) return;
+
+  try {
+    const response = await fetch(`${wsAddress.value}/api/clipboards/verify`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        id: clipboardToDelete.value.id,
+        password: deletePasswordInput.value
+      })
+    });
+
+    const result = await response.json();
+    if (result.isValid) {
+      showDeletePasswordDialog.value = false;
+      confirmDeleteClipboard(clipboardToDelete.value.id);
+    } else {
+      showToastMessage('密码验证失败！');
+    }
+  } catch (error) {
+    console.error('密码验证失败:', error);
+    showToastMessage('密码验证失败: ' + error.message);
+  }
+};
+
+// 确认删除剪切板
+const confirmDeleteClipboard = (id) => {
   clipboards.value = clipboards.value.filter(clip => clip.id !== id);
-  
   // 如果删除的是当前活动的剪切板，则切换到默认剪切板
   if (activeClipboardId.value === id) {
     activeClipboardId.value = 'default';
   }
-  
   if (socket.value) {
     socket.value.emit('delete-clipboard', id);
   }
+  showToastMessage('删除成功！');
 };
 
 // Toast提示状态
@@ -333,20 +378,20 @@ const fallbackCopy = () => {
     // 创建临时文本区域
     const textArea = document.createElement('textarea');
     textArea.value = activeClipboard.value.content;
-    
+
     // 确保文本区域在视口之外
     textArea.style.position = 'fixed';
     textArea.style.left = '-9999px';
     textArea.style.top = '0';
-    
+
     document.body.appendChild(textArea);
     textArea.focus();
     textArea.select();
-    
+
     // 尝试执行复制命令
     const successful = document.execCommand('copy');
     document.body.removeChild(textArea);
-    
+
     if (successful) {
       showToastMessage('复制成功！');
     } else {
@@ -364,18 +409,8 @@ const fallbackCopy = () => {
       <h1>公共剪切板</h1>
       <p class="subtitle">在不同设备间共享文本内容</p>
       <div class="connection-config">
-        <input 
-          type="text" 
-          v-model="wsAddress" 
-          placeholder="WebSocket服务器地址"
-          class="ws-input"
-          :disabled="isConnecting"
-        >
-        <button 
-          @click="connectWebSocket" 
-          class="connect-button"
-          :disabled="isConnecting"
-        >
+        <input type="text" v-model="wsAddress" placeholder="WebSocket服务器地址" class="ws-input" :disabled="isConnecting">
+        <button @click="connectWebSocket" class="connect-button" :disabled="isConnecting">
           {{ isConnecting ? '连接中...' : '连接' }}
         </button>
         <span class="connection-status" :class="{ connected: isConnected }">
@@ -386,29 +421,21 @@ const fallbackCopy = () => {
         </span>
       </div>
     </header>
-    
+
     <div class="tabs">
-      <div 
-        v-for="clipboard in clipboards" 
-        :key="clipboard.id"
-        :class="['tab', { active: activeClipboardId === clipboard.id }]"
-        @click="switchClipboard(clipboard.id)"
-      >
+      <div v-for="clipboard in clipboards" :key="clipboard.id"
+        :class="['tab', { active: activeClipboardId === clipboard.id }]" @click="switchClipboard(clipboard.id)">
         <span class="tab-name">
           {{ clipboard.id === 'default' ? '默认' : (clipboard.name || `剪切板 ${clipboards.indexOf(clipboard)}`) }}
           <img v-if="clipboard.isEncrypted" :src="LockIcon" class="lock-icon" alt="locked" />
         </span>
-        <button 
-          v-if="clipboard.id !== 'default'" 
-          class="tab-close" 
-          @click.stop="deleteClipboard(clipboard.id)"
-        >
+        <button v-if="clipboard.id !== 'default'" class="tab-close" @click.stop="deleteClipboard(clipboard.id)">
           &times;
         </button>
       </div>
       <button class="add-tab" @click="addClipboard">+</button>
     </div>
-    
+
     <div class="editor-container">
       <div class="editor-header">
         <button class="copy-button" @click="copyClipboardContent">
@@ -416,13 +443,9 @@ const fallbackCopy = () => {
           复制内容
         </button>
       </div>
-      <textarea 
-        v-model="activeClipboard.content"
-        class="editor"
-        placeholder="在此输入文本..."
-      ></textarea>
+      <textarea v-model="activeClipboard.content" class="editor" placeholder="在此输入文本..."></textarea>
     </div>
-    
+
     <footer>
       <p>多设备实时同步 | 数据保存在服务器</p>
     </footer>
@@ -431,18 +454,8 @@ const fallbackCopy = () => {
   <div v-if="showNameDialog" class="dialog-overlay">
     <div class="dialog">
       <h3>新建剪贴板</h3>
-      <input 
-        type="text" 
-        v-model="newClipboardName" 
-        placeholder="请输入剪贴板名称"
-        class="dialog-input"
-      >
-      <input 
-        type="password" 
-        v-model="newClipboardPassword" 
-        placeholder="设置密码（可选）"
-        class="dialog-input"
-      >
+      <input type="text" v-model="newClipboardName" placeholder="请输入剪贴板名称" class="dialog-input">
+      <input type="password" v-model="newClipboardPassword" placeholder="设置密码（可选）" class="dialog-input">
       <div class="dialog-buttons">
         <button @click="showNameDialog = false" class="dialog-button cancel">取消</button>
         <button @click="confirmAddClipboard" class="dialog-button confirm">确定</button>
@@ -453,16 +466,23 @@ const fallbackCopy = () => {
   <div v-if="showPasswordDialog" class="dialog-overlay">
     <div class="dialog">
       <h3>请输入密码</h3>
-      <input 
-        type="password" 
-        v-model="passwordInput" 
-        placeholder="请输入访问密码"
-        class="dialog-input"
-        @keyup.enter="verifyPassword"
-      >
+      <input type="password" v-model="passwordInput" placeholder="请输入访问密码" class="dialog-input"
+        @keyup.enter="verifyPassword">
       <div class="dialog-buttons">
         <button @click="showPasswordDialog = false" class="dialog-button cancel">取消</button>
         <button @click="verifyPassword" class="dialog-button confirm">确定</button>
+      </div>
+    </div>
+  </div>
+  <!-- 删除密码验证对话框 -->
+  <div v-if="showDeletePasswordDialog" class="dialog-overlay">
+    <div class="dialog">
+      <h3>请输入密码以删除剪切板</h3>
+      <input type="password" v-model="deletePasswordInput" placeholder="请输入访问密码" class="dialog-input"
+        @keyup.enter="verifyDeletePassword">
+      <div class="dialog-buttons">
+        <button @click="showDeletePasswordDialog = false" class="dialog-button cancel">取消</button>
+        <button @click="verifyDeletePassword" class="dialog-button confirm">确定</button>
       </div>
     </div>
   </div>
@@ -593,7 +613,8 @@ h1 {
   height: 14px;
   vertical-align: -2px;
   margin-left: 4px;
-  color: currentColor; /* 确保SVG图标继承父元素的颜色 */
+  color: currentColor;
+  /* 确保SVG图标继承父元素的颜色 */
 }
 
 .tab-close {
