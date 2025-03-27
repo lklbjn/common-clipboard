@@ -1,13 +1,13 @@
 # 构建阶段：使用多阶段构建优化镜像大小
-FROM node:18-alpine as builder
-WORKDIR /app
+FROM node:18-alpine AS builder
+WORKDIR /app/client
 
 # 首先复制package文件以利用缓存
-COPY package*.json ./
+COPY client/package*.json ./
 RUN npm install
 
 # 复制源代码并构建
-COPY . ./
+COPY client/ ./
 RUN npm run build
 
 # 生产阶段：使用nginx托管静态文件

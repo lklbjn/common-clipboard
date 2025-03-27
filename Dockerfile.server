@@ -3,11 +3,11 @@ FROM node:18-alpine as builder
 WORKDIR /app
 
 # 首先复制package文件以利用缓存
-COPY package*.json ./
+COPY server/package*.json ./
 RUN npm install
 
 # 复制源代码
-COPY . ./
+COPY server/ ./
 
 # 设置环境变量
 ENV NODE_ENV=production
