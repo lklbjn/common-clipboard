@@ -6,9 +6,11 @@ const bodyParser = require('body-parser');
 const crypto = require('crypto');
 
 // 解析命令行参数获取管理员账号信息
-let adminUsername = 'admin';
-let adminPassword = 'password';
+// 从环境变量或默认值获取管理员账号信息
+let adminUsername = process.env.ACCOUNT || 'admin';
+let adminPassword = process.env.PASSWORD || 'password';
 
+// 解析命令行参数获取管理员账号信息
 const args = process.argv.slice(2);
 if (args.length >= 2) {
   // 处理 -a/-p 格式
