@@ -394,4 +394,6 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`服务器运行在 http://127.0.0.1:${PORT}`);
+  console.log(`账号:${adminUsername}`);
+  console.log(`密码:${adminPassword}`);
 });
