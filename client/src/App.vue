@@ -131,8 +131,19 @@ watch(activeClipboardId, (newId) => {
   }
 });
 
+// 防抖函数
+const debounce = (fn, delay) => {
+  let timer = null;
+  return function (...args) {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      fn.apply(this, args);
+    }, delay);
+  };
+};
+
 // 监听剪切板内容变化
-watch(() => activeClipboard.value.content, (newContent) => {
+watch(() => activeClipboard.value.content, debounce((newContent) => {
   console.log('剪贴板内容已更新：', clipboards.value);
   if (socket.value) {
     // 保留所有原有字段，只更新content
@@ -144,7 +155,7 @@ watch(() => activeClipboard.value.content, (newContent) => {
       encryptedKey: activeClipboard.value.encryptedKey
     });
   }
-});
+}, 300));
 
 // 添加新剪切板
 const addClipboard = () => {
