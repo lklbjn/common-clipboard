@@ -322,10 +322,6 @@
                 return;
             }
 
-            if(isValidIPv4(ip)){
-                ip = '::ffff:' + ip;
-            }
-
             fetch('/admin/blacklist', {
                 method: 'POST',
                 headers: {
