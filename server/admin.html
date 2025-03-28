@@ -413,6 +413,7 @@
                             <td>${item.name}</td>
                             <td>${item.isEncrypted ? '是' : '否'}</td>
                             <td>
+                                <button class="delete-ip-button" onclick="modifyClipboardName('${item.id}')">修改名称</button>
                                 <button class="delete-ip-button" onclick="modifyClipboard('${item.id}')">修改密码</button>
                                 ${item.id !== 'default' ? `<button class="delete-ip-button" onclick="deleteClipboard('${item.id}')">删除</button>` : ''}
                             </td>
@@ -420,6 +421,35 @@
                     `).join('');
                 })
                 .catch(console.error);
+        }
+
+        // 修改剪切板名称
+        function modifyClipboardName(id) {
+            const name = prompt('请输入新的剪切板名称：');
+            if (name === null) return; // 用户点击取消
+
+            fetch('/admin/clipboards/name', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    id,
+                    name
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showToast('名称修改成功');
+                        updateClipboardList();
+                    } else {
+                        showToast(data.error || '修改失败', 'error');
+                    }
+                })
+                .catch(error => {
+                    showToast('修改失败：' + error.message, 'error');
+                });
         }
 
         // 修改剪切板密码

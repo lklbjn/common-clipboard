@@ -107,6 +107,33 @@ let clipboards = [
   }
 ];
 
+// 管理员修改剪切板名称接口
+app.post('/admin/clipboards/name', (req, res) => {
+  const { id, name } = req.body;
+  
+  if (!id || !name) {
+    return res.status(400).json({ error: '缺少剪切板ID或名称' });
+  }
+  
+  const clipboard = clipboards.find(clip => clip.id === id);
+  if (!clipboard) {
+    return res.status(404).json({ error: '剪切板不存在' });
+  }
+  
+  // 更新剪切板名称
+  clipboard.name = name;
+  
+  // 通知所有客户端更新
+  const sanitizedClipboards = clipboards.map(clip => ({
+    ...clip,
+    content: clip.isEncrypted ? '' : clip.content,
+    passwordHash: undefined
+  }));
+  io.emit('clipboard-updated', sanitizedClipboards);
+  
+  res.json({ success: true });
+});
+
 // 管理员修改剪切板密码接口
 app.post('/admin/clipboards/password', (req, res) => {
   const { id, password } = req.body;
