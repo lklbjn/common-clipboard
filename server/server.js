@@ -139,17 +139,7 @@ app.post('/admin/clipboards/password', (req, res) => {
   res.json({ success: true });
 });
 
-// API路由
-app.get('/api/clipboards', (req, res) => {
-  // 过滤掉加密内容
-  const sanitizedClipboards = clipboards.map(clip => ({
-    ...clip,
-    content: clip.isEncrypted ? '' : clip.content
-  }));
-  res.json(sanitizedClipboards);
-});
-
-// 新增密码验证接口
+// 密码验证接口
 app.post('/api/clipboards/verify', (req, res) => {
   const { id, password } = req.body;
   
@@ -238,6 +228,32 @@ app.delete('/api/clipboards/:id', (req, res) => {
 app.get('/admin/devices', (req, res) => {
   const devices = Array.from(connectedDevices.values());
   res.json(devices);
+});
+
+// 剪切板列表
+app.get('/admin/clipboards', (req, res) => {
+  // 过滤掉加密内容
+  const sanitizedClipboards = clipboards.map(clip => ({
+    ...clip,
+    content: clip.isEncrypted ? '' : clip.content
+  }));
+  res.json(sanitizedClipboards);
+});
+
+// 删除剪切板
+app.delete('/admin/clipboards/:id', (req, res) => {
+  const { id } = req.params;
+
+  // 不允许删除默认剪切板
+  if (id === 'default') {
+    return res.status(400).json({ error: '不能删除默认剪切板' });
+  }
+
+  clipboards = clipboards.filter(clip => clip.id !== id);
+
+  // 通知所有客户端更新
+  io.emit('clipboard-updated', clipboards);
+  res.json({ success: true });
 });
 
 // 获取黑名单列表

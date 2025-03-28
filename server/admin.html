@@ -404,7 +404,7 @@
 
         // 更新剪切板列表
         function updateClipboardList() {
-            fetch('/api/clipboards')
+            fetch('/admin/clipboards')
                 .then(response => response.json())
                 .then(clipboards => {
                     document.getElementById('clipboardTable').innerHTML = clipboards.map(item => `
@@ -459,7 +459,7 @@
             }
 
             if (confirm('确定要删除此剪切板吗？')) {
-                fetch(`/api/clipboards/${id}`, {
+                fetch(`/admin/clipboards/${id}`, {
                     method: 'DELETE'
                 })
                     .then(response => response.json())
