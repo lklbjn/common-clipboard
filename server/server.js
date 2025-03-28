@@ -235,7 +235,7 @@ app.get('/admin/clipboards', (req, res) => {
   // 过滤掉加密内容
   const sanitizedClipboards = clipboards.map(clip => ({
     ...clip,
-    content: clip.isEncrypted ? '' : clip.content
+    content: clip.content
   }));
   res.json(sanitizedClipboards);
 });
