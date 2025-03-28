@@ -123,14 +123,6 @@ app.post('/admin/clipboards/name', (req, res) => {
   // 更新剪切板名称
   clipboard.name = name;
   
-  // 通知所有客户端更新
-  const sanitizedClipboards = clipboards.map(clip => ({
-    ...clip,
-    content: clip.isEncrypted ? '' : clip.content,
-    passwordHash: undefined
-  }));
-  io.emit('clipboard-updated', sanitizedClipboards);
-  
   res.json({ success: true });
 });
 
