@@ -150,7 +150,7 @@ app.post('/admin/clipboards/password', (req, res) => {
   // 通知所有客户端更新
   const sanitizedClipboards = clipboards.map(clip => ({
     ...clip,
-    content: clip.isEncrypted ? '' : clip.content,
+    content: clip.content,
     passwordHash: undefined
   }));
   io.emit('clipboard-updated', sanitizedClipboards);
