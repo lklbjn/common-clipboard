@@ -80,6 +80,31 @@ let connectedDevices = new Map();
 // IP黑名单，存储被踢出的IP地址及其踢出时间
 let ipBlacklist = new Map();
 
+// 解密限制黑名单，存储密码错误次数过多的IP
+let decryptBlacklist = new Map();
+
+// 记录IP的密码错误次数
+let passwordAttempts = new Map();
+
+// 密码错误最大尝试次数
+const MAX_PASSWORD_ATTEMPTS = 6;
+
+// 检查IP是否在解密限制黑名单中
+function isIpDecryptBlacklisted(ip) {
+  if (decryptBlacklist.has(ip)) {
+    const block = decryptBlacklist.get(ip);
+    const now = new Date();
+    const secondsDiff = (now - block.blockTime) / 1000;
+    if (secondsDiff < block.duration) {
+      return true;
+    } else {
+      decryptBlacklist.delete(ip);
+      passwordAttempts.delete(ip);
+    }
+  }
+  return false;
+}
+
 // 检查IP是否在黑名单中
 function isIpBlacklisted(ip) {
   if (ipBlacklist.has(ip)) {
@@ -161,9 +186,17 @@ app.post('/admin/clipboards/password', (req, res) => {
 // 密码验证接口
 app.post('/api/clipboards/verify', (req, res) => {
   const { id, password } = req.body;
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
   
   if (!id || !password) {
     return res.status(400).json({ error: '缺少ID或密码参数' });
+  }
+  
+  // 检查IP是否在解密限制黑名单中
+  if (isIpDecryptBlacklisted(clientIp)) {
+    const block = decryptBlacklist.get(clientIp);
+    const remainingTime = Math.ceil(block.duration - (new Date() - block.blockTime) / 1000);
+    return res.status(403).json({ error: `由于多次密码错误，您的IP已被限制解密，请等待${remainingTime}秒后重试` });
   }
   
   const clipboard = clipboards.find(clip => clip.id === id);
@@ -177,10 +210,26 @@ app.post('/api/clipboards/verify', (req, res) => {
   
   const inputHash = crypto.createHash('sha256').update(password).digest('hex');
   if (inputHash === clipboard.passwordHash) {
+    // 密码正确，重置错误计数
+    passwordAttempts.delete(clientIp);
     return res.json({ isValid: true, content: clipboard.content });
   }
   
-  return res.json({ isValid: false });
+  // 记录密码错误次数
+  const attempts = (passwordAttempts.get(clientIp) || 0) + 1;
+  console.log(`IP ${clientIp} 尝试输入密码，错误次数：${attempts}`);
+  passwordAttempts.set(clientIp, attempts);
+  
+  // 如果错误次数达到上限，将IP加入解密限制黑名单
+  if (attempts >= MAX_PASSWORD_ATTEMPTS) {
+    const blockTime = new Date();
+    const duration = 3600; // 限制1小时
+    decryptBlacklist.set(clientIp, { blockTime, duration });
+    passwordAttempts.delete(clientIp);
+    return res.status(403).json({ error: `密码错误次数过多，您的IP已被限制解密1小时` });
+  }
+  
+  return res.json({ isValid: false, remainingAttempts: MAX_PASSWORD_ATTEMPTS - attempts });
 });
 
 app.post('/api/clipboards', (req, res) => {
@@ -287,6 +336,32 @@ app.get('/admin/blacklist', (req, res) => {
     };
   });
   res.json(blacklist);
+});
+
+// 获取解密限制黑名单列表
+app.get('/admin/decrypt-blacklist', (req, res) => {
+  const blacklist = Array.from(decryptBlacklist.entries()).map(([ip, data]) => {
+    const now = new Date();
+    const secondsDiff = data.duration - (now - data.blockTime) / 1000;
+    return {
+      ip,
+      blockTime: data.blockTime.toISOString(),
+      remainingSeconds: Math.max(0, secondsDiff)
+    };
+  });
+  res.json(blacklist);
+});
+
+// 从解密限制黑名单中删除IP
+app.delete('/admin/decrypt-blacklist/:ip', (req, res) => {
+  const { ip } = req.params;
+
+  if (decryptBlacklist.delete(ip)) {
+    passwordAttempts.delete(ip);
+    res.json({ success: true });
+  } else {
+    res.status(404).json({ error: '指定的IP不在解密限制黑名单中' });
+  }
 });
 
 // 添加IP到黑名单

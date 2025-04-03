@@ -198,6 +198,21 @@
         </div>
 
         <div class="blacklist-section">
+            <h2>解密限制黑名单</h2>
+            <table class="blacklist-table">
+                <thead>
+                    <tr>
+                        <th>IP地址</th>
+                        <th>限制时间</th>
+                        <th>剩余时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="decryptBlacklistTable"></tbody>
+            </table>
+        </div>
+
+        <div class="blacklist-section">
             <h2>IP 黑名单管理</h2>
             <div class="blacklist-controls">
                 <input type="text" id="ipInput" placeholder="输入IP地址（支持IPv4/IPv6）" style="width: 250px">
@@ -395,11 +410,53 @@
             .catch(console.error);
 
         updateBlacklist();
+        updateDecryptBlacklist();
+
+        // 从解密限制黑名单中删除IP
+        function removeFromDecryptBlacklist(ip) {
+            if (confirm('确定要从解密限制黑名单中删除此IP吗？')) {
+                fetch(`/admin/decrypt-blacklist/${encodeURIComponent(ip)}`, {
+                    method: 'DELETE'
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            showToast('IP已从解密限制黑名单中删除');
+                            updateDecryptBlacklist();
+                        } else {
+                            showToast(data.error || '删除失败', 'error');
+                        }
+                    })
+                    .catch(error => {
+                        showToast('删除失败：' + error.message, 'error');
+                    });
+            }
+        }
+
+        // 更新解密限制黑名单列表
+        function updateDecryptBlacklist() {
+            fetch('/admin/decrypt-blacklist')
+                .then(response => response.json())
+                .then(blacklist => {
+                    document.getElementById('decryptBlacklistTable').innerHTML = blacklist.map(item => `
+                        <tr>
+                            <td>${item.ip}</td>
+                            <td>${formatDate(item.blockTime)}</td>
+                            <td>${item.remainingSeconds.toFixed(1)}秒</td>
+                            <td>
+                                <button class="delete-ip-button" onclick="removeFromDecryptBlacklist('${item.ip}')">删除</button>
+                            </td>
+                        </tr>
+                    `).join('');
+                })
+                .catch(console.error);
+        }
 
         // 定期更新黑名单列表和剪切板列表
         setInterval(() => {
             updateBlacklist();
             updateClipboardList();
+            updateDecryptBlacklist();
         }, 5000);
 
         // 更新剪切板列表
