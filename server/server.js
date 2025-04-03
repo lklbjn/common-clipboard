@@ -4,6 +4,45 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+
+// 定义数据文件路径
+const DATA_FILE = path.join(__dirname, 'data', 'clipboards.json');
+
+// 加载剪切板数据
+function loadClipboardData() {
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const data = fs.readFileSync(DATA_FILE, 'utf8');
+      return JSON.parse(data);
+    }
+  } catch (error) {
+    console.error('加载剪切板数据失败:', error);
+  }
+  return [
+    {
+      id: 'default',
+      content: '欢迎使用公共剪切板！',
+      name: '默认',
+      isEncrypted: false,
+      passwordHash: null
+    }
+  ];
+}
+
+// 保存剪切板数据
+function saveClipboardData() {
+  try {
+    const dir = path.dirname(DATA_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(DATA_FILE, JSON.stringify(clipboards, null, 2));
+  } catch (error) {
+    console.error('保存剪切板数据失败:', error);
+  }
+}
 
 // 解析命令行参数获取管理员账号信息
 // 从环境变量或默认值获取管理员账号信息
@@ -122,15 +161,7 @@ function isIpBlacklisted(ip) {
 }
 
 // 存储剪切板数据
-let clipboards = [
-  {
-    id: 'default',
-    content: '欢迎使用公共剪切板！',
-    name: '默认',
-    isEncrypted: false,
-    passwordHash: null
-  }
-];
+let clipboards = loadClipboardData();
 
 // 管理员修改剪切板名称接口
 app.post('/admin/clipboards/name', (req, res) => {
@@ -289,6 +320,8 @@ app.delete('/api/clipboards/:id', (req, res) => {
 
   // 通知所有客户端更新
   io.emit('clipboard-updated', clipboards);
+  // 保存数据到文件
+  saveClipboardData();
   res.json({ success: true });
 });
 
@@ -321,6 +354,8 @@ app.delete('/admin/clipboards/:id', (req, res) => {
 
   // 通知所有客户端更新
   io.emit('clipboard-updated', clipboards);
+  // 保存数据到文件
+  saveClipboardData();
   res.json({ success: true });
 });
 
@@ -463,6 +498,8 @@ io.on('connection', (socket) => {
 
     // 广播给所有客户端
     io.emit('clipboard-updated', clipboards);
+    // 保存数据到文件
+    saveClipboardData();
   });
 
   socket.on('delete-clipboard', (id) => {
@@ -473,6 +510,8 @@ io.on('connection', (socket) => {
 
     // 广播给所有客户端
     io.emit('clipboard-updated', clipboards);
+    // 保存数据到文件
+    saveClipboardData();
   });
 
   // 处理踢出设备请求
