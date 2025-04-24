@@ -171,7 +171,6 @@ const confirmAddClipboard = async () => {
   const password = newClipboardPassword.value;
 
   const newClipboard = {
-    id: tempClipboardId.value,
     content: '',
     name: name,
     isEncrypted: !!password,
@@ -193,7 +192,7 @@ const confirmAddClipboard = async () => {
 
     const result = await response.json();
     if (result.success) {
-      activeClipboardId.value = tempClipboardId.value;
+      activeClipboardId.value = result.id;
       showNameDialog.value = false;
       showToastMessage('创建成功！');
     }

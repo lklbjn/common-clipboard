@@ -1,0 +1,22 @@
+name = "common-clipboard"
+main = "server/server-worker.js"
+compatibility_date = "2025-04-08"
+
+# KV命名空间配置
+[[kv_namespaces]]
+id = "CLIPBOARD_DATA"
+binding = "CLIPBOARD_STORE"
+
+# 环境变量配置
+[vars]
+ACCOUNT = "admin"
+PASSWORD = "password"
+
+# 开发环境配置
+[env.dev]
+name = "common-clipboard-dev"
+
+# 生产环境配置
+[env.production]
+name = "common-clipboard-prod"
+route = "clipboard.yourdomain.com/*"

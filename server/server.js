@@ -264,7 +264,7 @@ app.post('/api/clipboards/verify', (req, res) => {
 });
 
 app.post('/api/clipboards', (req, res) => {
-  const { id, content, name, isEncrypted, password } = req.body;
+  const { content, name, isEncrypted, password } = req.body;
   
   if (isEncrypted && !password) {
     return res.status(400).json({ error: '加密剪切板需要提供密码' });
@@ -273,30 +273,16 @@ app.post('/api/clipboards', (req, res) => {
   // 生成密码哈希
   const passwordHash = isEncrypted ? crypto.createHash('sha256').update(password).digest('hex') : null;
 
-  const existingIndex = clipboards.findIndex(clip => clip.id === id);
-  if (existingIndex !== -1) {
-    // 如果是加密剪切板，需要验证密码
-    if (clipboards[existingIndex].isEncrypted) {
-      if (!password || crypto.createHash('sha256').update(password).digest('hex') !== clipboards[existingIndex].passwordHash) {
-        return res.status(403).json({ error: '密码错误' });
-      }
-    }
-    clipboards[existingIndex] = {
-      ...clipboards[existingIndex],
-      content,
-      name,
-      isEncrypted,
-      passwordHash
-    };
-  } else {
-    clipboards.push({
-      id,
-      content,
-      name,
-      isEncrypted,
-      passwordHash
-    });
-  }
+  // 生成新的UUID作为剪切板ID
+  const newId = crypto.randomUUID();
+
+  clipboards.push({
+    id: newId,
+    content,
+    name,
+    isEncrypted,
+    passwordHash
+  });
 
   // 通知所有客户端更新，过滤掉加密内容
   const sanitizedClipboards = clipboards.map(clip => ({
